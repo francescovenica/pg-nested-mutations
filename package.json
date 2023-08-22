@@ -5,19 +5,17 @@
   "scripts": {
     "build": "tsc",
     "test": "vitest",
-    "test:watch": "vitest --watch"
-  },
-  "dependencies": {
-    "postgraphile": "^5.0.0-beta.6"
+    "test:watch": "vitest --watch",
+    "typecheck": "tsc --noEmit"
   },
   "devDependencies": {
-    "@graphql-codegen/cli": "5.0.0",
-    "@graphql-codegen/import-types-preset": "2.2.6",
-    "@graphql-codegen/typescript": "4.0.1",
-    "@graphql-codegen/typescript-operations": "4.0.1",
-    "@vitest/coverage-istanbul": "0.34.1",
+    "@vitest/coverage-istanbul": "0.34.2",
+    "postgraphile": "^5.0.0-beta.6",
     "typescript": "5.1.6",
-    "vite": "4.4.8",
-    "vitest": "0.34.1"
+    "vite": "4.4.9",
+    "vitest": "0.34.2"
+  },
+  "dependencies": {
+    "@tsconfig/node16": "^16.1.1"
   }
 }

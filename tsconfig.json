@@ -1,19 +1,19 @@
 {
+  "extends": "@tsconfig/node16/tsconfig.json",
   "compilerOptions": {
-    "resolveJsonModule": true,
-    "target": "ES2019",
-    "lib": ["ES5", "ES6", "ESNext", "DOM", "ES2019"],
+    "noEmit": true,
+    "allowJs": false,
+    "target": "ESNext",
     "module": "commonjs",
-    "outDir": "./dist",
-    "rootDir": "./src",
-    "strict": true,
-    "esModuleInterop": true,
-    "types": ["node", "vitest/globals"],
-    "typeRoots": ["src/types", "./node_modules/@types", "./node_modules"],
-    "moduleResolution": "node16",
-    "baseUrl": "src",
-    "skipLibCheck": true
-  },
-  "include": ["src/**/*.ts"],
-  "exclude": ["dist", "node_modules"]
+    "moduleResolution": "NodeNext",
+    "importHelpers": true,
+    "experimentalDecorators": true,
+    "noImplicitAny": true,
+    "strictNullChecks": true,
+    "noFallthroughCasesInSwitch": true,
+    "noUnusedParameters": false,
+    "noUnusedLocals": false,
+    "preserveWatchOutput": true,
+    "lib": ["es2018", "esnext.asynciterable"]
+  }
 }

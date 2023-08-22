@@ -1,29 +1,52 @@
-import { PgCodec } from "postgraphile/@dataplan/pg";
-import { ObjectStep } from "postgraphile/grafast";
+import "postgraphile";
+import { PgCodecRelation } from "postgraphile/@dataplan/pg";
 
-// Extend the global GraphileBuild.Build type to add our 'flibble' attribute:
 declare global {
   namespace GraphileBuild {
     interface Build {
       nestedCodecs: {
         name: string;
-        attribute: string;
         inputTypeName: string | null;
         direction: "forward" | "bakwards";
-        localCodec: PgCodec;
-        remoteCodec: PgCodec;
+        relation: PgCodecRelation;
       }[];
       registeredField: string[];
       extendedField: string[];
     }
+    interface Inflection {
+      buildForwardTypeName(this: Inflection, relation: PgCodecRelation): string;
+      buildBackwardTypeName(
+        this: Inflection,
+        relation: PgCodecRelation
+      ): string;
+    }
   }
 }
-
-let print = true;
 
 export const NestedPlugin: GraphileConfig.Plugin = {
   name: "PgNestedMutationsPlugin",
   version: "0.0.0",
+  inflection: {
+    add: {
+      buildForwardTypeName(_, { remoteResource, localCodec, localAttributes }) {
+        const localAttribute = this.upperCamelCase(localAttributes[0]);
+        return `${this.upperCamelCase(
+          remoteResource.codec.name
+        )}${this.upperCamelCase(localCodec.name)}${localAttribute}FkeyInput`;
+      },
+      buildBackwardTypeName(
+        _,
+        { remoteResource, localCodec, localAttributes }
+      ) {
+        const localAttribute = this.upperCamelCase(localAttributes[0]);
+        return `${this.upperCamelCase(
+          remoteResource.codec.name
+        )}${this.upperCamelCase(
+          localCodec.name
+        )}${localAttribute}FkeyInverseInput`;
+      },
+    },
+  },
   schema: {
     hooks: {
       build(build) {
@@ -50,73 +73,46 @@ export const NestedPlugin: GraphileConfig.Plugin = {
 
         Object.values(pgRelations).forEach((tablesRelations) => {
           Object.values(tablesRelations).forEach((relation) => {
-            let typeName: string;
+            const typeName = relation.isReferencee
+              ? inflection.buildBackwardTypeName(relation)
+              : inflection.buildForwardTypeName(relation);
 
             const inputTypeName = getGraphQLTypeNameByPgCodec(
               relation.remoteResource.codec,
               "input"
             );
 
-            const localAttribute = inflection.upperCamelCase(
-              relation.localAttributes[0]
-            );
+            nestedCodecs.push({
+              direction: relation.isReferencee ? "bakwards" : "forward",
+              name: typeName,
+              inputTypeName,
+              relation,
+            });
 
-            if (relation.isReferencee) {
-              typeName = `${inflection.upperCamelCase(
-                relation.remoteResource.codec.name
-              )}${inflection.upperCamelCase(
-                relation.localCodec.name
-              )}${localAttribute}FkeyInverseInput`;
-
-              nestedCodecs.push({
-                name: typeName,
-                direction: "bakwards",
-                localCodec: relation.localCodec,
-                remoteCodec: relation.remoteResource.codec,
-                attribute: relation.localAttributes[0],
-                inputTypeName,
-              });
-            } else {
-              typeName = `${inflection.upperCamelCase(
-                relation.remoteResource.codec.name
-              )}${inflection.upperCamelCase(
-                relation.localCodec.name
-              )}${localAttribute}FkeyInput`;
-
-              nestedCodecs.push({
-                name: typeName,
-                direction: "forward",
-                localCodec: relation.localCodec,
-                remoteCodec: relation.remoteResource.codec,
-                attribute: relation.localAttributes[0],
-                inputTypeName,
-              });
-            }
-
+            // TODO: improve creating a new type for this
             const newCodec = relation.localCodec;
             if (newCodec.attributes) {
               newCodec.attributes[relation.localAttributes[0]].notNull = false;
             }
 
-            const localInputTypeName = getGraphQLTypeNameByPgCodec(
+            const newInputTypeName = getGraphQLTypeNameByPgCodec(
               newCodec,
               "input"
             );
 
             build.registerInputObjectType(
               typeName,
-              { isInputType: true },
+              { isMutationInput: true },
               () => ({
                 type: GraphQLInputObjectType,
                 name: typeName,
                 description: typeName,
                 fields: {
-                  ...(localInputTypeName && {
+                  ...(newInputTypeName && {
                     create: {
                       type: new GraphQLList(
-                        build.getInputTypeByName(localInputTypeName)
+                        build.getInputTypeByName(newInputTypeName)
                       ),
-                      description: "description",
                     },
                   }),
                   update: {
@@ -126,14 +122,6 @@ export const NestedPlugin: GraphileConfig.Plugin = {
                   deleteOthers: {
                     type: GraphQLBoolean,
                     description: "description",
-                  },
-                },
-                extensions: {
-                  grafast: {
-                    inputPlan($fieldArgs) {
-                      console.log("args", $fieldArgs.getRaw());
-                      return Object.create(null);
-                    },
                   },
                 },
               }),
@@ -149,33 +137,31 @@ export const NestedPlugin: GraphileConfig.Plugin = {
 
         if (!scope.isPgRowType || !scope.isInputType) return fields;
 
-        const codecs = build.nestedCodecs.filter(
-          ({ localCodec, remoteCodec }) => {
-            return (
-              context.Self.name ===
-                build.getGraphQLTypeNameByPgCodec(localCodec, "input") ||
-              context.Self.name ===
-                build.getGraphQLTypeNameByPgCodec(remoteCodec, "input")
-            );
-          }
-        );
+        const codecs = build.nestedCodecs.filter(({ relation }) => {
+          const { localCodec, remoteResource } = relation;
+          return (
+            context.Self.name ===
+              build.getGraphQLTypeNameByPgCodec(localCodec, "input") ||
+            context.Self.name ===
+              build.getGraphQLTypeNameByPgCodec(remoteResource.codec, "input")
+          );
+        });
 
         codecs.forEach((codec) => {
           if (codec?.inputTypeName === Self.name) {
             const fieldName =
               codec.direction === "bakwards"
-                ? codec.localCodec.name
-                : build.inflection.pluralize(codec.localCodec.name);
+                ? codec.relation.localCodec.name
+                : build.inflection.pluralize(codec.relation.localCodec.name);
 
+            // TODO: find why without this throw a duplicate error
             try {
               build.extend(
                 fields,
                 {
                   [fieldName]: fieldWithHooks(
                     { fieldName: fieldName },
-                    {
-                      type: build.getInputTypeByName(codec.name),
-                    }
+                    { type: build.getInputTypeByName(codec.name) }
                   ),
                 },
                 fieldName
@@ -188,20 +174,6 @@ export const NestedPlugin: GraphileConfig.Plugin = {
 
         return fields;
       },
-      // GraphQLInputObjectType_fields_field(field, build, context) {
-      //   if (context.scope.fieldName === "companyPageI18NS") {
-      //     field.extensions = {
-      //       grafast: {
-      //         applyPlan: ($parentPlan, $fieldArgs) => {
-      //           // console.log("parentPlan", $parentPlan);
-      //           console.log("fieldPlan", $fieldArgs.get());
-      //         },
-      //       },
-      //     };
-      //   }
-
-      //   return field;
-      // },
     },
   },
 };
